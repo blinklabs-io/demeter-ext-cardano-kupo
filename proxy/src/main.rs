@@ -17,12 +17,15 @@ mod config;
 mod health;
 mod proxy;
 mod tiers;
+mod utils;
 
 use auth::AuthBackgroundService;
 use config::Config;
 use health::HealthBackgroundService;
 use proxy::KupoProxy;
 use tiers::TierBackgroundService;
+
+use crate::utils::handle_legacy_networks;
 
 fn main() {
     dotenv().ok();
@@ -104,7 +107,7 @@ impl Display for Consumer {
 }
 impl From<&KupoPort> for Consumer {
     fn from(value: &KupoPort) -> Self {
-        let network = value.spec.network.to_string();
+        let network = handle_legacy_networks(&value.spec.network);
         let tier = value.spec.throughput_tier.to_string();
         let key = value.status.as_ref().unwrap().auth_token.clone();
         let namespace = value.metadata.namespace.as_ref().unwrap().clone();

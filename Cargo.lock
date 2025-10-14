@@ -2256,6 +2256,7 @@ dependencies = [
  "bytes",
  "dotenv",
  "futures-util",
+ "lazy_static",
  "notify",
  "operator",
  "pingora",
