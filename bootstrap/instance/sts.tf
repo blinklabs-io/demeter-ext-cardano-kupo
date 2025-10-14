@@ -1,5 +1,5 @@
 locals {
-  instance_tmp  = var.pruned ? "kupo-${var.network}-pruned" : "kupo-${var.network}"
+  instance_tmp  = var.pruned ? "kupo-${trimprefix(var.network, "cardano-")}-pruned" : "kupo-${trimprefix(var.network, "cardano-")}"
   instance_name = var.suffix != "" ? "${local.instance_tmp}-${var.suffix}" : local.instance_tmp
   base_args = [
     "--workdir",

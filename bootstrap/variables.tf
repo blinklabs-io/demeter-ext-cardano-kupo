@@ -5,7 +5,7 @@ variable "namespace" {
 
 variable "networks" {
   type    = list(string)
-  default = ["mainnet", "preprod", "preview"]
+  default = ["cardano-mainnet", "cardano-preprod", "cardano-preview"]
 }
 
 variable "cloud_provider" {
