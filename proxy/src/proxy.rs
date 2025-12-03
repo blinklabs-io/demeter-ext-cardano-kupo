@@ -9,6 +9,7 @@ use pingora::{
 use pingora_limits::rate::Rate;
 use regex::Regex;
 use std::sync::Arc;
+use std::time::Instant;
 use tracing::info;
 
 use crate::config::Config;
@@ -118,6 +119,7 @@ pub struct Context {
     is_health_request: bool,
     instance: String,
     consumer: Consumer,
+    start_time: Option<Instant>,
 }
 
 #[async_trait]
@@ -131,6 +133,7 @@ impl ProxyHttp for KupoProxy {
     where
         Self::CTX: Send + Sync,
     {
+        ctx.start_time = Some(Instant::now());
         let state = self.state.clone();
 
         // Check if the request is going to the health endpoint before continuing.
@@ -199,17 +202,32 @@ impl ProxyHttp for KupoProxy {
                 .response_written()
                 .map_or(0, |resp| resp.status.as_u16());
 
-            info!(
-                "{} response code: {response_code}",
-                self.request_summary(session, ctx)
-            );
-
             self.state.metrics.inc_http_total_request(
                 &ctx.consumer,
                 &self.config.proxy_namespace,
                 &ctx.instance,
                 &response_code,
             );
+
+            if let Some(start) = ctx.start_time {
+                let dur = start.elapsed();
+
+                self.state.metrics.observe_http_request_duration(
+                    &ctx.consumer,
+                    &response_code,
+                    dur,
+                );
+                info!(
+                    response_time = dur.as_millis(),
+                    "{} response code: {response_code}",
+                    self.request_summary(session, ctx)
+                );
+            } else {
+                info!(
+                    "{} response code: {response_code}",
+                    self.request_summary(session, ctx)
+                );
+            }
         }
     }
 }
