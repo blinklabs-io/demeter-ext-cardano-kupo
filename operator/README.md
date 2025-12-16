@@ -11,7 +11,6 @@ This operator will create a key into the CRD to allow Kupo to be accessed extern
 | API_KEY_SALT         | kupo-salt                     |
 | METRICS_DELAY        | 40                            |
 | PROMETHEUS_URL       |                               |
-| DCU_PER_REQUEST        | preview=5,preprod=5,mainnet=5 |
 | DEFAULT_KUPO_VERSION | 2                             |
 
 ## Port CRD

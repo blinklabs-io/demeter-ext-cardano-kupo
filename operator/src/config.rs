@@ -1,5 +1,5 @@
 use lazy_static::lazy_static;
-use std::{collections::HashMap, env, time::Duration};
+use std::{env, time::Duration};
 
 lazy_static! {
     static ref CONTROLLER_CONFIG: Config = Config::from_env();
@@ -16,7 +16,6 @@ pub struct Config {
     pub api_key_salt: String,
     pub metrics_delay: Duration,
     pub prometheus_url: String,
-    pub dcu_per_request: HashMap<String, f64>,
     pub default_kupo_version: String,
 }
 
@@ -33,18 +32,6 @@ impl Config {
                     .expect("METRICS_DELAY must be a number"),
             ),
             prometheus_url: env::var("PROMETHEUS_URL").expect("PROMETHEUS_URL must be set"),
-            dcu_per_request: env::var("DCU_PER_REQUEST")
-                .expect("DCU_PER_REQUEST must be set")
-                .split(',')
-                .map(|pair| {
-                    let parts: Vec<&str> = pair.split('=').collect();
-                    let dcu = parts[1]
-                        .parse::<f64>()
-                        .expect("DCU_PER_REQUEST must be NETWORK=NUMBER");
-
-                    (parts[0].into(), dcu)
-                })
-                .collect(),
             default_kupo_version: env::var("DEFAULT_KUPO_VERSION").unwrap_or("v2".into()),
         }
     }

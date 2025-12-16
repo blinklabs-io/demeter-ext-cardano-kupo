@@ -10,24 +10,6 @@ variable "metrics_delay" {
   default     = "60"
 }
 
-variable "per_min_dcus" {
-  default = {
-    "mainnet" : 36,
-    "default" : 16,
-  }
-}
-
-variable "per_request_dcus" {
-  default = {
-    "mainnet" : 10,
-    "default" : 5,
-  }
-}
-
-variable "track_dcu_usage" {
-  default = "true"
-}
-
 variable "api_key_salt" {
   type = string
 }

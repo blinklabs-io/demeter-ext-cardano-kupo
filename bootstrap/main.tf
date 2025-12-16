@@ -12,7 +12,6 @@ module "kupo_feature" {
   extension_subdomain = var.extension_subdomain
   dns_zone            = var.dns_zone
   api_key_salt        = var.api_key_salt
-  per_request_dcus    = var.per_request_dcus
   namespace           = var.namespace
   resources           = var.operator_resources
   tolerations         = var.operator_tolerations

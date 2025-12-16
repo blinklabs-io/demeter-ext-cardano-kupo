@@ -51,16 +51,6 @@ resource "kubernetes_deployment_v1" "operator" {
           }
 
           env {
-            name  = "DCU_PER_REQUEST"
-            value = "mainnet=${var.per_request_dcus["mainnet"]},preprod=${var.per_request_dcus["default"]},preview=${var.per_request_dcus["default"]},sanchonet=${var.per_request_dcus["default"]}"
-          }
-
-          env {
-            name  = "TRACK_DCU_USAGE"
-            value = var.track_dcu_usage
-          }
-
-          env {
             name  = "API_KEY_SALT"
             value = var.api_key_salt
           }

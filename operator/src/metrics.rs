@@ -14,7 +14,6 @@ use crate::{get_config, Config, Error, KupoPort, State};
 
 #[derive(Clone)]
 pub struct Metrics {
-    pub dcu: IntCounterVec,
     pub usage: IntCounterVec,
     pub reconcile_failures: IntCounterVec,
     pub metrics_failures: IntCounterVec,
@@ -22,12 +21,6 @@ pub struct Metrics {
 
 impl Default for Metrics {
     fn default() -> Self {
-        let dcu = IntCounterVec::new(
-            opts!("dmtr_consumed_dcus", "quantity of dcu consumed",),
-            &["project", "service", "service_type", "tenancy"],
-        )
-        .unwrap();
-
         let usage = IntCounterVec::new(
             opts!("usage", "Feature usage",),
             &["feature", "project", "resource_name", "tier"],
@@ -53,7 +46,6 @@ impl Default for Metrics {
         .unwrap();
 
         Metrics {
-            dcu,
             usage,
             reconcile_failures,
             metrics_failures,
@@ -65,7 +57,6 @@ impl Metrics {
     pub fn register(self, registry: &Registry) -> Result<Self, prometheus::Error> {
         registry.register(Box::new(self.reconcile_failures.clone()))?;
         registry.register(Box::new(self.metrics_failures.clone()))?;
-        registry.register(Box::new(self.dcu.clone()))?;
         registry.register(Box::new(self.usage.clone()))?;
 
         Ok(self)
@@ -81,18 +72,6 @@ impl Metrics {
         self.metrics_failures
             .with_label_values(&[e.metric_label().as_ref()])
             .inc()
-    }
-
-    pub fn count_dcu_consumed(&self, project: &str, network: &str, dcu: f64) {
-        let service = format!("{}-{}", KupoPort::kind(&()), network);
-        let service_type = format!("{}.{}", KupoPort::plural(&()), KupoPort::group(&()));
-        let tenancy = "proxy";
-
-        let dcu: u64 = dcu.ceil() as u64;
-
-        self.dcu
-            .with_label_values(&[project, &service, &service_type, tenancy])
-            .inc_by(dcu);
     }
 
     pub fn count_usage(&self, project: &str, resource_name: &str, tier: &str, value: f64) {
@@ -248,95 +227,11 @@ pub fn run_metrics_collector(state: Arc<State>) {
                     warn!(instance, "invalid network to the regex");
                     continue;
                 }
-                let network_captures = network_captures.unwrap();
-                let network = network_captures.get(1).unwrap().as_str();
                 let tier = result.metric.tier.unwrap();
 
-                let dcu_per_request = config.dcu_per_request.get(network);
-                if dcu_per_request.is_none() {
-                    let error = Error::ConfigError(format!(
-                        "dcu_per_request not configured to {} network",
-                        network
-                    ));
-                    error!(error = error.to_string());
-                    state.metrics.metrics_failure(&error);
-                    continue;
-                }
-                let dcu_per_request = dcu_per_request.unwrap();
-
-                let dcu = result.value * dcu_per_request;
-                state.metrics.count_dcu_consumed(project, network, dcu);
                 state
                     .metrics
                     .count_usage(project, resource_name, &tier, result.value);
-            }
-        }
-    });
-}
-
-#[instrument("kong metrics collector run", skip_all)]
-pub fn run_kong_metrics_collector(state: Arc<State>) {
-    tokio::spawn(async move {
-        info!("collecting kong metrics running");
-
-        let config = get_config();
-        let regex = Regex::new(r"(.+)\.(\w+)-.+").unwrap();
-        let mut last_execution = Utc::now();
-
-        loop {
-            tokio::time::sleep(config.metrics_delay).await;
-
-            let end = Utc::now();
-            let start = (end - last_execution).num_seconds();
-
-            last_execution = end;
-
-            let query = format!(
-                    "sum by (consumer) (increase(kong_http_requests_total{{service='kupo-v1-ingress-kong-proxy', code!~\"429|401|503\"}}[{start}s] @ {}))",
-                    end.timestamp_millis() / 1000
-                );
-
-            let response = collect_prometheus_metrics(config, query).await;
-            if let Err(err) = response {
-                error!(error = err.to_string(), "error to make prometheus request");
-                state.metrics.metrics_failure(&err);
-                continue;
-            }
-            let response = response.unwrap();
-
-            for result in response.data.result {
-                if result.value == 0.0 || result.metric.consumer.is_none() {
-                    continue;
-                }
-
-                let consumer = result.metric.consumer.unwrap();
-
-                let captures = regex.captures(&consumer);
-                if captures.is_none() {
-                    warn!(consumer, "invalid consumer to the regex");
-                    continue;
-                }
-
-                let captures = captures.unwrap();
-                let namespace = captures.get(1).unwrap().as_str();
-                let network = captures.get(2).unwrap().as_str();
-
-                let dcu_per_request = config.dcu_per_request.get(network);
-                if dcu_per_request.is_none() {
-                    let error = Error::ConfigError(format!(
-                        "dcu_per_request not configured to {} network",
-                        network
-                    ));
-                    error!(error = error.to_string());
-                    state.metrics.metrics_failure(&error);
-                    continue;
-                }
-                let dcu_per_request = dcu_per_request.unwrap();
-
-                let dcu = result.value * dcu_per_request;
-
-                let project = namespace.split_once("prj-").unwrap().1;
-                state.metrics.count_dcu_consumed(project, network, dcu);
             }
         }
     });
