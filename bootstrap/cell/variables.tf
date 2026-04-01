@@ -27,6 +27,7 @@ variable "access_mode" {
 // Instances
 variable "instances" {
   type = map(object({
+    replicas      = optional(number)
     image_tag     = string
     network       = string
     pruned        = bool

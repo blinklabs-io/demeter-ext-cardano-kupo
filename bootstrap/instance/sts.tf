@@ -31,7 +31,7 @@ resource "kubernetes_stateful_set_v1" "kupo" {
     }
   }
   spec {
-    replicas     = 1
+    replicas     = var.replicas
     service_name = "kupo"
     selector {
       match_labels = {

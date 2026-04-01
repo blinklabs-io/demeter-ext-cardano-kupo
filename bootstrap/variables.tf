@@ -249,6 +249,7 @@ variable "cells" {
       access_mode        = string
     })
     instances = map(object({
+      replicas      = optional(number)
       image_tag     = string
       network       = string
       pruned        = bool

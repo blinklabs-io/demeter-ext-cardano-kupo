@@ -19,6 +19,7 @@ module "kupo_instances" {
   for_each = var.instances
 
   namespace     = var.namespace
+  replicas      = coalesce(each.value.replicas, 1)
   image_tag     = each.value.image_tag
   network       = each.value.network
   pruned        = each.value.pruned

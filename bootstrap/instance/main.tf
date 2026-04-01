@@ -2,6 +2,11 @@ variable "namespace" {
   default = "ftr-kupo-v1"
 }
 
+variable "replicas" {
+  type    = number
+  default = 1
+}
+
 variable "network" {
   type = string
 }
