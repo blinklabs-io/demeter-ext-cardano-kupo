@@ -70,14 +70,9 @@ impl KupoProxy {
         let rate_limiter_map = self.state.limiter.read().await;
         let rates = rate_limiter_map.get(&consumer.key).unwrap();
 
-        if rates
+        Ok(rates
             .iter()
-            .any(|(t, r)| r.observe(&consumer.key, 1) > t.limit)
-        {
-            return Ok(true);
-        }
-
-        Ok(false)
+            .any(|(t, r)| r.observe(&consumer.key, 1) > t.limit))
     }
 
     async fn respond_health(&self, session: &mut Session, ctx: &mut Context) {
@@ -160,7 +155,7 @@ impl ProxyHttp for KupoProxy {
             return Ok(true);
         }
 
-        let pattern = format!("{}{path}", &session.req_header().method);
+        let pattern = format!("{}{path}", session.req_header().method);
         if self.private_endpoint_regex.is_match(&pattern) {
             self.respond_unauthorized(session).await;
             return Ok(true);

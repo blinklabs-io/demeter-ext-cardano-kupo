@@ -65,3 +65,25 @@ to collect metrics for Prometheus, an HTTP API will enable the route /metrics.
 ```
 /metrics
 ```
+
+## TLS certificate renewal
+
+The proxy loads `SSL_CRT_PATH` and `SSL_KEY_PATH` at startup, then polls them
+every five seconds. A valid replacement is used for new TLS handshakes without
+restarting the process. Existing connections continue normally.
+
+Certificate validity dates, adjacent issuer signatures, and the matching private
+key are validated before the
+active pair is replaced. Missing, malformed, or mismatched files leave the
+previous pair active and produce an error log; a later valid update is retried.
+An invalid initial pair prevents startup. Retaining a certificate does not extend
+its expiry: monitor reload errors and the certificate served by the listener.
+
+Kubernetes Secret volumes are supported, including atomic `..data` symlink
+replacement. Mount the Secret directory rather than individual files through
+`subPath`, which does not receive Secret updates. Detection follows the kubelet's
+projection update plus the polling interval. No Secret API permissions or restart
+controller are required.
+
+Run `cargo test --locked -p proxy` for renewal, failed-reload recovery, and
+Kubernetes-style symlink replacement tests with real TLS handshakes.
