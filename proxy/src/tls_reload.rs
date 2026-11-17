@@ -12,7 +12,10 @@ use openssl::{
     pkey::{PKey, Private},
     sha::sha256,
     ssl::{SslAcceptor, SslMethod},
-    x509::X509,
+    stack::Stack,
+    x509::{
+        store::X509StoreBuilder, verify::X509VerifyFlags, X509PurposeId, X509StoreContext, X509,
+    },
 };
 use pingora::{
     listeners::TlsAccept, protocols::tls::TlsRef, server::ShutdownWatch,
@@ -66,11 +69,28 @@ impl CertificateReloader {
         }
         for pair in chain.windows(2) {
             let issuer_key = pair[1].public_key()?;
-            if pair[0].issuer_name().to_der()? != pair[1].subject_name().to_der()?
+            if pair[0].issuer_name().try_cmp(pair[1].subject_name())? != std::cmp::Ordering::Equal
                 || !pair[0].verify(&issuer_key)?
             {
                 return Err("TLS certificate chain has an invalid issuer or signature".into());
             }
+        }
+        // Servers commonly omit the root. Anchor at the last supplied certificate
+        // to check path constraints without requiring a client trust store here.
+        // This checks chain consistency, not authorization to serve a hostname.
+        let mut store = X509StoreBuilder::new()?;
+        store.add_cert(chain.last().ok_or("empty certificate chain")?.clone())?;
+        store.set_flags(X509VerifyFlags::PARTIAL_CHAIN)?;
+        store.set_purpose(X509PurposeId::SSL_SERVER)?;
+        let mut intermediates = Stack::new()?;
+        for cert in chain.iter().skip(1) {
+            intermediates.push(cert.clone())?;
+        }
+        let mut context = X509StoreContext::new()?;
+        if !context.init(&store.build(), leaf, &intermediates, |ctx| {
+            ctx.verify_cert()
+        })? {
+            return Err(format!("invalid TLS certificate chain: {}", context.error()).into());
         }
         let key = PKey::private_key_from_pem(&key_pem)?;
         // Validate the complete candidate before publishing any of it to handshakes.
@@ -344,11 +364,19 @@ mod tests {
     }
 
     fn chain_fixture() -> ((Vec<u8>, Vec<u8>), X509) {
-        use openssl::x509::extension::{BasicConstraints, SubjectAlternativeName};
+        chain_fixture_with_options(true, false)
+    }
+
+    fn chain_fixture_with_options(is_ca: bool, mixed_names: bool) -> ((Vec<u8>, Vec<u8>), X509) {
+        use openssl::{
+            asn1::Asn1Type,
+            x509::extension::{BasicConstraints, SubjectAlternativeName},
+        };
         let ca_key = PKey::from_rsa(Rsa::generate(2048).unwrap()).unwrap();
         let leaf_key = PKey::from_rsa(Rsa::generate(2048).unwrap()).unwrap();
         let mut name = X509NameBuilder::new().unwrap();
-        name.append_entry_by_text("CN", "test CA").unwrap();
+        name.append_entry_by_text_with_type("CN", "test CA", Asn1Type::PRINTABLESTRING)
+            .unwrap();
         let name = name.build();
         let mut ca = X509::builder().unwrap();
         ca.set_version(2).unwrap();
@@ -361,8 +389,12 @@ mod tests {
             .unwrap();
         ca.set_not_after(&Asn1Time::days_from_now(30).unwrap())
             .unwrap();
-        ca.append_extension(BasicConstraints::new().critical().ca().build().unwrap())
-            .unwrap();
+        let mut constraints = BasicConstraints::new();
+        constraints.critical();
+        if is_ca {
+            constraints.ca();
+        }
+        ca.append_extension(constraints.build().unwrap()).unwrap();
         ca.sign(&ca_key, MessageDigest::sha256()).unwrap();
         let ca = ca.build();
         let mut leaf = X509::builder().unwrap();
@@ -372,7 +404,20 @@ mod tests {
         let mut subject = X509NameBuilder::new().unwrap();
         subject.append_entry_by_text("CN", "localhost").unwrap();
         leaf.set_subject_name(&subject.build()).unwrap();
-        leaf.set_issuer_name(ca.subject_name()).unwrap();
+        if mixed_names {
+            let mut issuer = X509NameBuilder::new().unwrap();
+            issuer
+                .append_entry_by_text_with_type("CN", "test CA", Asn1Type::UTF8STRING)
+                .unwrap();
+            let issuer = issuer.build();
+            assert_ne!(
+                issuer.to_der().unwrap(),
+                ca.subject_name().to_der().unwrap()
+            );
+            leaf.set_issuer_name(&issuer).unwrap();
+        } else {
+            leaf.set_issuer_name(ca.subject_name()).unwrap();
+        }
         leaf.set_pubkey(&leaf_key).unwrap();
         leaf.set_not_before(&Asn1Time::days_from_now(0).unwrap())
             .unwrap();
@@ -402,6 +447,30 @@ mod tests {
         let mut bad_chain = X509::stack_from_pem(&valid.0).unwrap()[0].to_pem().unwrap();
         bad_chain.extend(other_ca.to_pem().unwrap());
         write_pair(dir.path(), &(bad_chain, valid.1));
+        assert!(reloader.reload().is_err());
+        assert_eq!(connect_with_trust(&reloader, Some(&ca)), "200");
+    }
+
+    #[test]
+    fn equivalent_issuer_encodings_are_accepted() {
+        let dir = TempDir::new().unwrap();
+        let (valid, ca) = chain_fixture_with_options(true, true);
+        write_pair(dir.path(), &valid);
+        let reloader =
+            CertificateReloader::new(dir.path().join("tls.crt"), dir.path().join("tls.key"))
+                .unwrap();
+        assert_eq!(connect_with_trust(&reloader, Some(&ca)), "200");
+    }
+
+    #[test]
+    fn non_ca_issuer_cannot_replace_a_working_chain() {
+        let dir = TempDir::new().unwrap();
+        let (valid, ca) = chain_fixture();
+        write_pair(dir.path(), &valid);
+        let reloader =
+            CertificateReloader::new(dir.path().join("tls.crt"), dir.path().join("tls.key"))
+                .unwrap();
+        write_pair(dir.path(), &chain_fixture_with_options(false, false).0);
         assert!(reloader.reload().is_err());
         assert_eq!(connect_with_trust(&reloader, Some(&ca)), "200");
     }
