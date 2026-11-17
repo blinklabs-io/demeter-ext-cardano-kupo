@@ -69,7 +69,7 @@ to collect metrics for Prometheus, an HTTP API will enable the route /metrics.
 ## TLS certificate renewal
 
 The proxy loads `SSL_CRT_PATH` and `SSL_KEY_PATH` at startup, then polls them
-every five seconds. A valid replacement is used for new TLS handshakes without
+every 60 seconds. Unchanged contents skip certificate parsing and validation. A valid replacement is used for new TLS handshakes without
 restarting the process. Existing connections continue normally.
 
 Certificate validity dates, adjacent issuer signatures, and the matching private

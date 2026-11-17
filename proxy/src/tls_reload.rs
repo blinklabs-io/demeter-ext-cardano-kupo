@@ -40,7 +40,8 @@ pub struct CertificateReloader {
 
 impl CertificateReloader {
     pub fn new(cert_path: PathBuf, key_path: PathBuf) -> ReloadResult<Self> {
-        let initial = Self::load(&cert_path, &key_path)?;
+        let (cert_pem, key_pem) = Self::read_pair(&cert_path, &key_path)?;
+        let initial = Self::parse_pair(&cert_pem, &key_pem)?;
         Ok(Self {
             cert_path,
             key_path,
@@ -48,7 +49,7 @@ impl CertificateReloader {
         })
     }
 
-    fn load(cert_path: &PathBuf, key_path: &PathBuf) -> ReloadResult<Certificate> {
+    fn read_pair(cert_path: &PathBuf, key_path: &PathBuf) -> ReloadResult<(Vec<u8>, Vec<u8>)> {
         // Resolve the projection again on every poll: Kubernetes replaces ..data,
         // not the symlinks or inodes that a file watcher might still be following.
         let cert_target = fs::canonicalize(cert_path)?;
@@ -59,7 +60,11 @@ impl CertificateReloader {
         {
             return Err("TLS files changed during reload; retrying on next poll".into());
         }
-        let chain = X509::stack_from_pem(&cert_pem)?;
+        Ok((cert_pem, key_pem))
+    }
+
+    fn parse_pair(cert_pem: &[u8], key_pem: &[u8]) -> ReloadResult<Certificate> {
+        let chain = X509::stack_from_pem(cert_pem)?;
         let leaf = chain.first().ok_or("empty certificate chain")?;
         let now = Asn1Time::days_from_now(0)?;
         for cert in &chain {
@@ -92,7 +97,7 @@ impl CertificateReloader {
         })? {
             return Err(format!("invalid TLS certificate chain: {}", context.error()).into());
         }
-        let key = PKey::private_key_from_pem(&key_pem)?;
+        let key = PKey::private_key_from_pem(key_pem)?;
         // Validate the complete candidate before publishing any of it to handshakes.
         let mut validation = SslAcceptor::mozilla_intermediate_v5(SslMethod::tls())?;
         validation.set_certificate(leaf)?;
@@ -104,20 +109,27 @@ impl CertificateReloader {
         Ok(Certificate {
             chain,
             key,
-            fingerprint: (sha256(&cert_pem), sha256(&key_pem)),
+            fingerprint: (sha256(cert_pem), sha256(key_pem)),
         })
     }
 
     fn reload(&self) -> ReloadResult<bool> {
-        let candidate = Self::load(&self.cert_path, &self.key_path)?;
-        let mut current = self
-            .current
-            .write()
-            .map_err(|_| "TLS certificate lock poisoned")?;
-        if candidate.fingerprint == current.fingerprint {
+        let (cert_pem, key_pem) = Self::read_pair(&self.cert_path, &self.key_path)?;
+        let fingerprint = (sha256(&cert_pem), sha256(&key_pem));
+        if fingerprint
+            == self
+                .current
+                .read()
+                .map_err(|_| "TLS certificate lock poisoned")?
+                .fingerprint
+        {
             return Ok(false);
         }
-        *current = Arc::new(candidate);
+        let candidate = Self::parse_pair(&cert_pem, &key_pem)?;
+        *self
+            .current
+            .write()
+            .map_err(|_| "TLS certificate lock poisoned")? = Arc::new(candidate);
         Ok(true)
     }
 }
@@ -149,7 +161,7 @@ impl TlsAccept for CertificateReloader {
 #[async_trait]
 impl BackgroundService for CertificateReloader {
     async fn start(&self, mut shutdown: ShutdownWatch) {
-        let mut interval = tokio::time::interval(Duration::from_secs(5));
+        let mut interval = tokio::time::interval(Duration::from_secs(60));
         loop {
             tokio::select! {
                 _ = shutdown.changed() => break,
