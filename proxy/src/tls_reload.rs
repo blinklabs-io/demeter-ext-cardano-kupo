@@ -476,6 +476,37 @@ mod tests {
     }
 
     #[test]
+    fn shipped_example_certificate_passes_startup_and_hostname_verification() {
+        let manifest = include_str!("../../examples/manifest.yaml");
+        let extract = |field: &str| -> Vec<u8> {
+            let marker = format!("  {field}: |\n");
+            let block = manifest.split_once(&marker).unwrap().1;
+            block
+                .lines()
+                .take_while(|line| line.starts_with("    "))
+                .map(|line| format!("{}\n", &line[4..]))
+                .collect::<String>()
+                .into_bytes()
+        };
+        let fixture = (extract("localhost.crt"), extract("localhost.key"));
+        let cert = X509::from_pem(&fixture.0).unwrap();
+        let dir = TempDir::new().unwrap();
+        write_pair(dir.path(), &fixture);
+        let reloader =
+            CertificateReloader::new(dir.path().join("tls.crt"), dir.path().join("tls.key"))
+                .unwrap();
+        assert_eq!(
+            connect_with_trust(&reloader, Some(&cert)),
+            cert.serial_number()
+                .to_bn()
+                .unwrap()
+                .to_dec_str()
+                .unwrap()
+                .to_string()
+        );
+    }
+
+    #[test]
     fn invalid_initial_pair_fails_startup() {
         let dir = TempDir::new().unwrap();
         assert!(

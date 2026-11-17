@@ -2,10 +2,10 @@ name: Proxy
 
 on:
   pull_request:
-    paths: ['proxy/**', 'operator/**', 'Cargo.toml', 'Cargo.lock', '.github/workflows/proxy.yml']
+    paths: ['examples/manifest.yaml', 'proxy/**', 'operator/**', 'Cargo.toml', 'Cargo.lock', '.github/workflows/proxy.yml']
   push:
     branches: [main]
-    paths: ['proxy/**', 'operator/**', 'Cargo.toml', 'Cargo.lock', '.github/workflows/proxy.yml']
+    paths: ['examples/manifest.yaml', 'proxy/**', 'operator/**', 'Cargo.toml', 'Cargo.lock', '.github/workflows/proxy.yml']
 
 permissions:
   contents: read
