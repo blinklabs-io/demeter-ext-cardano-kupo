@@ -17,6 +17,7 @@ mod config;
 mod health;
 mod proxy;
 mod tiers;
+mod tls_reload;
 mod utils;
 
 use auth::AuthBackgroundService;
@@ -55,13 +56,15 @@ fn main() {
         &server.configuration,
         KupoProxy::new(state.clone(), config.clone()),
     );
-    kupo_http_proxy
-        .add_tls(
-            &config.proxy_addr,
-            &config.ssl_crt_path,
-            &config.ssl_key_path,
-        )
-        .unwrap();
+    let certificates = tls_reload::CertificateReloader::new(
+        config.ssl_crt_path.clone().into(),
+        config.ssl_key_path.clone().into(),
+    )
+    .expect("initial TLS certificate and key must be valid");
+    let tls = pingora::listeners::tls::TlsSettings::with_callbacks(Box::new(certificates.clone()))
+        .expect("TLS settings must be valid");
+    kupo_http_proxy.add_tls_with_settings(&config.proxy_addr, None, tls);
+    server.add_service(background_service("TLS certificate reload", certificates));
     server.add_service(kupo_http_proxy);
 
     let mut prometheus_service = pingora::services::listening::Service::prometheus_http_service();

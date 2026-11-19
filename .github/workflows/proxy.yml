@@ -1,0 +1,26 @@
+name: Proxy
+
+on:
+  pull_request:
+    paths: ['examples/manifest.yaml', 'proxy/**', 'operator/**', 'Cargo.toml', 'Cargo.lock', '.github/workflows/proxy.yml']
+  push:
+    branches: [main]
+    paths: ['examples/manifest.yaml', 'proxy/**', 'operator/**', 'Cargo.toml', 'Cargo.lock', '.github/workflows/proxy.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Install Rust tools
+        run: rustup component add rustfmt clippy
+      - name: Check formatting
+        run: cargo fmt -p proxy --check
+      - name: Test proxy
+        run: cargo test --locked -p proxy
+      - name: Lint proxy
+        run: cargo clippy --locked -p proxy --all-targets -- -D warnings
